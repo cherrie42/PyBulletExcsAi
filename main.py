@@ -9,7 +9,7 @@ from pose_analyzer import PoseAnalyzer
 from humanoid import HumanoidModel
 from training_plan import TrainingPlan
 from data_analyzer import DataAnalyzer
-from text_renderer import TextRenderer
+from text_renderer import TextRenderer  # 在文件开头的导入部分添加
 
 class FitnessTrainer:
     def __init__(self, user_id="default_user"):
@@ -43,6 +43,8 @@ class FitnessTrainer:
             'joint_accuracy': {}
         }
         
+        # 初始化文本渲染器
+        self.text_renderer = TextRenderer()  # 添加这一行
     def process_frame(self):
         success, image = self.cap.read()
         if not success:
