@@ -1,0 +1,87 @@
+<?xml version="1.0"?>
+<robot name="humanoid">
+    <link name="base_link">
+        <visual>
+            <geometry>
+                <box size="0.1 0.2 0.5"/>
+            </geometry>
+            <material name="blue">
+                <color rgba="0 0 0.8 1"/>
+            </material>
+        </visual>
+    </link>
+
+    <!-- 左臂 -->
+    <link name="left_upper_arm">
+        <visual>
+            <geometry>
+                <cylinder length="0.3" radius="0.05"/>
+            </geometry>
+            <material name="gray">
+                <color rgba="0.5 0.5 0.5 1"/>
+            </material>
+        </visual>
+    </link>
+
+    <joint name="left_shoulder" type="revolute">
+        <parent link="base_link"/>
+        <child link="left_upper_arm"/>
+        <origin xyz="0 0.1 0.2" rpy="0 0 0"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-3.14" upper="3.14" effort="100" velocity="1"/>
+    </joint>
+
+    <!-- 右臂 -->
+    <link name="right_upper_arm">
+        <visual>
+            <geometry>
+                <cylinder length="0.3" radius="0.05"/>
+            </geometry>
+            <material name="gray"/>
+        </visual>
+    </link>
+
+    <joint name="right_shoulder" type="revolute">
+        <parent link="base_link"/>
+        <child link="right_upper_arm"/>
+        <origin xyz="0 -0.1 0.2" rpy="0 0 0"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-3.14" upper="3.14" effort="100" velocity="1"/>
+    </joint>
+
+    <!-- 左腿 -->
+    <link name="left_upper_leg">
+        <visual>
+            <geometry>
+                <cylinder length="0.4" radius="0.06"/>
+            </geometry>
+            <material name="gray"/>
+        </visual>
+    </link>
+
+    <joint name="left_hip" type="revolute">
+        <parent link="base_link"/>
+        <child link="left_upper_leg"/>
+        <origin xyz="0 0.1 -0.2" rpy="0 0 0"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-3.14" upper="3.14" effort="100" velocity="1"/>
+    </joint>
+
+    <!-- 右腿 -->
+    <link name="right_upper_leg">
+        <visual>
+            <geometry>
+                <cylinder length="0.4" radius="0.06"/>
+            </geometry>
+            <material name="gray"/>
+        </visual>
+    </link>
+
+    <joint name="right_hip" type="revolute">
+        <parent link="base_link"/>
+        <child link="right_upper_leg"/>
+        <origin xyz="0 -0.1 -0.2" rpy="0 0 0"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="-3.14" upper="3.14" effort="100" velocity="1"/>
+    </joint>
+</robot>
