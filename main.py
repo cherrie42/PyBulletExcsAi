@@ -50,57 +50,57 @@ class FitnessTrainer:
         if not success:
             return False
             
-        # 转换颜色空间并进行姿势检测
+        # Convert color space and perform pose detection
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = self.pose.process(image)
         
-        # 转回BGR用于显示
+        # Convert back to BGR for display
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         
         if results.pose_landmarks:
-            # 分析姿态并获取关节角度
+            # Analyze pose and get joint angles
             joint_angles = self.pose_analyzer.analyze_pose(results.pose_landmarks)
             
-            # 更新PyBullet模型姿态
+            # Update PyBullet model pose
             self.humanoid.set_joint_angles(joint_angles)
             
-            # 获取当前训练计划中的目标姿态
+            # Get target pose from current training plan
             target_angles = self.get_target_angles()
             evaluation = self.pose_analyzer.evaluate_pose(joint_angles, target_angles)
             
-            # 检测当前姿态状态
+            # Detect current pose state
             pose_state = self.pose_analyzer.detect_pose_state(results.pose_landmarks)
             
-            # 更新训练会话数据
+            # Update training session data
             self.update_session_data(joint_angles, evaluation)
             
-            # 在图像上显示姿态评估结果和训练进度
+            # Display pose evaluation results and training progress
             self.draw_evaluation(image, evaluation, pose_state)
             self.draw_training_progress(image)
             
-            # 绘制姿势标记点
+            # Draw pose landmarks
             self.mp_drawing.draw_landmarks(
                 image,
                 results.pose_landmarks,
                 self.mp_pose.POSE_CONNECTIONS
             )
             
-        # 显示处理后的图像
+        # Display processed image
         cv2.imshow('Fitness Trainer', image)
         return True
         
     def run(self):
-        # 加载或创建训练计划
+        # Load or create training plan
         self.load_or_create_plan()
         
         while self.cap.isOpened():
             if not self.process_frame():
                 break
                 
-            if cv2.waitKey(5) & 0xFF == 27:  # ESC键退出
+            if cv2.waitKey(5) & 0xFF == 27:  # Press ESC to exit
                 break
             
-            # 检查训练计划完成情况
+            # Check if training plan is complete
             if self.check_session_complete():
                 self.save_session()
                 break
@@ -108,46 +108,46 @@ class FitnessTrainer:
         self.cleanup()
         
     def get_exercise_type(self):
-        """根据当前训练计划识别运动类型"""
+        """Get the exercise type from current training plan"""
         if not self.current_plan or not self.current_plan['exercises']:
-            return '准备开始训练'
+            return 'Ready to Start Training'
         current_exercise = self.current_plan['exercises'][0]
         exercise_names = {
-            'squat': '深蹲',
-            'push_up': '俯卧撑',
-            'standing_stretch': '站姿拉伸'
+            'squat': 'Squat',
+            'push_up': 'Push-up',
+            'standing_stretch': 'Standing Stretch'
         }
-        return exercise_names.get(current_exercise['name'], '未知运动')
+        return exercise_names.get(current_exercise['name'], 'Unknown Exercise')
 
     def draw_evaluation(self, image, evaluation, pose_state):
-        """在图像上显示姿态评估结果"""
-        # 显示当前运动类型和姿态状态
+        """Display pose evaluation results on image"""
+        # Display current exercise type and pose state
         exercise_type = self.get_exercise_type()
-        image = self.text_renderer.put_text(image, f'当前运动: {exercise_type}',
-                    (10, 30), font_size=24, color=(255, 255, 0))
-        image = self.text_renderer.put_text(image, f'姿态状态: {pose_state}',
-                    (10, 60), font_size=24, color=(0, 255, 255))
+        cv2.putText(image, f'Exercise: {exercise_type}',
+                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+        cv2.putText(image, f'Pose State: {pose_state}',
+                    (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
-        # 显示姿态评估结果
+        # Display pose evaluation results
         y_pos = 90
         joint_names = {
-            'left_shoulder': '左肩',
-            'right_shoulder': '右肩',
-            'left_hip': '左髋',
-            'right_hip': '右髋'
+            'left_shoulder': 'Left Shoulder',
+            'right_shoulder': 'Right Shoulder',
+            'left_hip': 'Left Hip',
+            'right_hip': 'Right Hip'
         }
         for joint_name, result in evaluation.items():
             status_color = (0, 255, 0) if result['status'] == 'good' else (0, 0, 255)
             display_name = joint_names.get(joint_name, joint_name)
-            image = self.text_renderer.put_text(image, f'{display_name}: {result["suggestion"]}',
-                        (10, y_pos), font_size=24, color=status_color)
+            cv2.putText(image, f'{display_name}: {result["suggestion"]}',
+                        (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, status_color, 2)
             y_pos += 30
     
     def cleanup(self):
-        # 保存最终的训练数据
+        # Save final training data
         self.save_session()
         
-        # 释放资源
+        # Release resources
         self.cap.release()
         cv2.destroyAllWindows()
         p.disconnect()
