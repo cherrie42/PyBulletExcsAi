@@ -82,46 +82,32 @@ class PoseAnalyzer:
                 
                 evaluation[joint_name] = {
                     'status': status,
-                    'difference': np.degrees(diff),  # 转换为角度
+                    'difference': np.degrees(diff),
                     'suggestion': self._get_correction_suggestion(
                         joint_name,
                         current_angles[joint_name],
                         target_angles[joint_name]
-                    ) if status == 'needs_correction' else '姿势正确，请保持'
+                    ) if status == 'needs_correction' else 'Correct posture, please maintain'
                 }
                 
         return evaluation
         
     def _get_correction_suggestion(self, joint_name, current_angle, target_angle):
-        """生成矫正建议
-        Args:
-            joint_name: 关节名称
-            current_angle: 当前角度
-            target_angle: 目标角度
-        Returns:
-            矫正建议文本
-        """
         diff = np.degrees(current_angle - target_angle)
-        direction = '弯曲' if diff < 0 else '伸展'
+        direction = 'bend' if diff < 0 else 'extend'
         
         suggestions = {
-            'left_shoulder': f'左肩需要{direction}约{abs(diff):.1f}度',
-            'right_shoulder': f'右肩需要{direction}约{abs(diff):.1f}度',
-            'left_hip': f'左髋需要{direction}约{abs(diff):.1f}度',
-            'right_hip': f'右髋需要{direction}约{abs(diff):.1f}度'
+            'left_shoulder': f'Left shoulder needs to {direction} {abs(diff):.1f} degrees',
+            'right_shoulder': f'Right shoulder needs to {direction} {abs(diff):.1f} degrees',
+            'left_hip': f'Left hip needs to {direction} {abs(diff):.1f} degrees',
+            'right_hip': f'Right hip needs to {direction} {abs(diff):.1f} degrees'
         }
         
-        return suggestions.get(joint_name, '需要调整姿势')
-        
+        return suggestions.get(joint_name, 'Posture needs adjustment')
+
     def detect_pose_state(self, pose_landmarks):
-        """检测用户当前的姿态状态（站立、坐姿、躺卧）
-        Args:
-            pose_landmarks: MediaPipe姿态检测结果
-        Returns:
-            姿态状态描述
-        """
         if not pose_landmarks:
-            return '未检测到姿态'
+            return 'No pose detected'
             
         landmarks = pose_landmarks.landmark
         
@@ -148,11 +134,11 @@ class PoseAnalyzer:
         
         if hip_angle > self.pose_thresholds['standing']['hip_knee_angle'] and \
            vertical_ratio > self.pose_thresholds['standing']['vertical_ratio']:
-            return '站立'
+            return 'Standing'
         elif self.pose_thresholds['sitting']['hip_knee_angle'] < hip_angle < self.pose_thresholds['standing']['hip_knee_angle'] and \
              vertical_ratio > self.pose_thresholds['sitting']['vertical_ratio']:
-            return '坐姿'
+            return 'Sitting'
         elif vertical_ratio < self.pose_thresholds['sitting']['vertical_ratio']:
-            return '躺卧'
+            return 'Lying'
         else:
-            return '其他姿态'
+            return 'Other pose'
