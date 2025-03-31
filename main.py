@@ -10,6 +10,7 @@ from humanoid import HumanoidModel
 from training_plan import TrainingPlan
 from data_analyzer import DataAnalyzer
 from text_renderer import TextRenderer  # 在文件开头的导入部分添加
+from pose_model import PosePrediction
 
 class FitnessTrainer:
     def __init__(self, user_id="default_user"):
@@ -45,6 +46,10 @@ class FitnessTrainer:
         
         # 初始化文本渲染器
         self.text_renderer = TextRenderer()  # 添加这一行
+        
+        # 将 PoseClassifier 替换为 PyTorch 模型
+        self.pose_predictor = PosePrediction()
+        
     def process_frame(self):
         success, image = self.cap.read()
         if not success:
