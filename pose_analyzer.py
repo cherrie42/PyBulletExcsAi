@@ -145,9 +145,7 @@ class PoseAnalyzer:
         elif self.pose_thresholds['sitting']['hip_knee_angle'] < hip_angle < self.pose_thresholds['standing']['hip_knee_angle'] and \
                 vertical_ratio > self.pose_thresholds['sitting']['vertical_ratio']:
             return 'Sitting'
-        elif hip_angle < self.pose_thresholds['squat']['hip_knee_angle'] and \
-                vertical_ratio < self.pose_thresholds['sitting']['vertical_ratio'] and \
-                vertical_ratio > self.pose_thresholds['squat']['vertical_ratio']:
+        elif hip_angle < self.pose_thresholds['squat']['hip_knee_angle']:
             return 'Squat'
         elif vertical_ratio < self.pose_thresholds['squat']['vertical_ratio']:
             return 'Lying'
