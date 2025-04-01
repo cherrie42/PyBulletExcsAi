@@ -33,7 +33,7 @@ class TrainingDataGenerator:
         
     def capture_standard_poses(self):
         """捕获标准姿势数据"""
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(1)
         
         exercise_types = {
             's': 'squat',
