@@ -21,7 +21,7 @@ class FitnessTrainer:
         self.mp_drawing = mp.solutions.drawing_utils
 
         # 初始化摄像头
-        self.cap = cv2.VideoCapture(1)
+        self.cap = cv2.VideoCapture(0)
 
         # 初始化PyBullet
         p.connect(p.GUI)
@@ -79,6 +79,9 @@ class FitnessTrainer:
             # Detect current pose state
             pose_state = self.pose_analyzer.detect_pose_state(
                 results.pose_landmarks)
+
+            # 更新姿势状态历史并检测动作完成情况
+            self.track_exercise_completion(pose_state)
 
             # Update training session data
             self.update_session_data(joint_angles, evaluation)
@@ -203,15 +206,88 @@ class FitnessTrainer:
                 joint_data['accuracy'] * joint_data['count'] + accuracy) / (joint_data['count'] + 1)
             joint_data['count'] += 1
 
+    def track_exercise_completion(self, pose_state):
+        """跟踪和检测动作完成情况
+        Args:
+            pose_state: 当前姿势状态
+        """
+        if not self.current_plan or not self.current_plan['exercises']:
+            return
+
+        current_exercise = self.current_plan['exercises'][0]
+
+        # 初始化姿势状态历史记录
+        if not hasattr(self, 'pose_state_history'):
+            self.pose_state_history = []
+            self.exercise_completed = False
+            self.rep_count = 0
+            self.last_update_time = datetime.now()
+
+        # 只有当姿势状态变化时才记录
+        if not self.pose_state_history or pose_state != self.pose_state_history[-1]:
+            self.pose_state_history.append(pose_state)
+
+            # 检测完整的动作周期
+            if len(self.pose_state_history) >= 3:
+                # 深蹲：只要检测到Squat状态就计为完成一次
+                if current_exercise['name'] == 'squat' and pose_state == 'Squat':
+                    self.rep_count += 1
+                    # 更新完成的训练次数
+                    self.current_plan['progress']['completed_sessions'] += 1
+
+                    # 清除已处理的状态历史
+                    self.pose_state_history = []
+
+                # 俯卧撑：检测从站立到俯卧再回到站立的过程，允许中间有其他状态
+                elif current_exercise['name'] == 'push_up':
+                    # 找到最近的一次站立->俯卧->站立的序列
+                    for i in range(len(self.pose_state_history)-2):
+                        states = self.pose_state_history[i:i+3]
+                        if states[0] == 'Standing' and 'Lying' in states[1:-1] and states[-1] == 'Standing':
+                            self.rep_count += 1
+                            print(f"完成第{self.rep_count}个俯卧撑")
+                            # 清除已处理的状态历史
+                            self.pose_state_history = self.pose_state_history[i+2:]
+                            break
+
+            # 限制历史记录长度
+            if len(self.pose_state_history) > 10:
+                self.pose_state_history = self.pose_state_history[-10:]
+
+            # 检查是否完成了当前动作的所有重复次数
+            if self.rep_count >= current_exercise.get('reps', 1):
+                self.exercise_completed = True
+                self.rep_count = 0  # 重置计数器，准备下一个动作
+
+                # 更新训练进度
+                self.save_session()
+
+                # 更新最后更新时间
+                self.last_update_time = datetime.now()
+
     def check_session_complete(self):
         """检查训练会话是否完成"""
         if not self.current_plan:
             return False
 
-        # 检查是否达到计划的训练时长或完成所有动作
+        # 检查是否达到计划的训练时长
         session_duration = (
             datetime.now() - datetime.fromisoformat(self.session_data['timestamp'])).seconds
-        return session_duration >= 1800  # 30分钟训练时长
+        if session_duration >= 1800:  # 30分钟训练时长
+            return True
+
+        # 检查是否已完成当前动作
+        if hasattr(self, 'exercise_completed') and self.exercise_completed:
+            # 如果已经完成了所有动作，返回True
+            if not self.current_plan['exercises']:
+                return True
+
+            # 如果距离上次更新已经过了一定时间，返回True以触发保存
+            if hasattr(self, 'last_update_time') and \
+               (datetime.now() - self.last_update_time).seconds > 5:
+                return True
+
+        return False
 
     def save_session(self):
         """保存训练会话数据"""

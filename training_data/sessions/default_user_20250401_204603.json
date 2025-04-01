@@ -1,0 +1,15 @@
+{
+  "user_id": "default_user",
+  "timestamp": "2025-04-01T20:45:43.977351",
+  "exercises": [],
+  "joint_accuracy": {
+    "left_hip": {
+      "accuracy": 62.36455820288121,
+      "count": 432
+    },
+    "right_hip": {
+      "accuracy": 61.00211566180522,
+      "count": 432
+    }
+  }
+}
