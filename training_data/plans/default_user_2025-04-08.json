@@ -1,0 +1,33 @@
+{
+  "user_id": "default_user",
+  "start_date": "2025-04-08",
+  "duration_weeks": 4,
+  "exercises": [
+    {
+      "name": "squat",
+      "sets": 1,
+      "reps": 1,
+      "target_angles": {
+        "left_hip": 1.57,
+        "right_hip": 1.57,
+        "left_knee": 1.57,
+        "right_knee": 1.57
+      }
+    },
+    {
+      "name": "push_up",
+      "sets": 3,
+      "reps": 8,
+      "target_angles": {
+        "left_shoulder": -0.52,
+        "right_shoulder": -0.52,
+        "left_elbow": 1.57,
+        "right_elbow": 1.57
+      }
+    }
+  ],
+  "progress": {
+    "completed_sessions": 0,
+    "total_sessions": 0
+  }
+}

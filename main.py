@@ -3,14 +3,17 @@ import mediapipe as mp
 import numpy as np
 import pybullet as p
 import time
+import sys
 from datetime import datetime
 from pathlib import Path
+from PyQt5.QtWidgets import QApplication
 from pose_analyzer import PoseAnalyzer
 from humanoid import HumanoidModel
 from training_plan import TrainingPlan
 from data_analyzer import DataAnalyzer
-from text_renderer import TextRenderer  # 在文件开头的导入部分添加
+from text_renderer import TextRenderer
 from pose_model import PosePrediction
+from ui.main_window import MainWindow
 
 
 class FitnessTrainer:
@@ -23,8 +26,8 @@ class FitnessTrainer:
         # 初始化摄像头
         self.cap = cv2.VideoCapture(0)
 
-        # 初始化PyBullet
-        p.connect(p.GUI)
+        # 初始化PyBullet（使用DIRECT模式替代GUI模式）
+        p.connect(p.DIRECT)
         p.setGravity(0, 0, -9.81)
         p.setRealTimeSimulation(1)
 
@@ -51,13 +54,48 @@ class FitnessTrainer:
         # 将 PoseClassifier 替换为 PyTorch 模型
         self.pose_predictor = PosePrediction()
 
-    def process_frame(self):
-        success, image = self.cap.read()
-        if not success:
-            return False
+    def start(self):
+        """开始训练"""
+        # 加载或创建训练计划
+        self.load_or_create_plan()
+        # 初始化训练状态
+        self.is_running = True
+        self.is_paused = False
+        self.pause_start_time = None
+        self.total_pause_duration = 0
 
+    def pause(self):
+        """暂停训练"""
+        self.is_paused = not self.is_paused
+        if self.is_paused:
+            self.pause_start_time = datetime.now()
+        else:
+            # 计算暂停时长并累加
+            if self.pause_start_time:
+                pause_duration = (datetime.now() - self.pause_start_time).seconds
+                self.total_pause_duration += pause_duration
+                self.pause_start_time = None
+
+    def stop(self):
+        """停止训练"""
+        self.is_running = False
+        self.save_session()
+        self.cleanup()
+
+    def process_frame(self, frame=None):
+        """处理视频帧
+        Args:
+            frame: 可选的输入帧，如果为None则从摄像头读取
+        Returns:
+            处理后的图像帧
+        """
+        if frame is None:
+            success, frame = self.cap.read()
+            if not success:
+                return None
+        
         # Convert color space and perform pose detection
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.pose.process(image)
 
         # Convert back to BGR for display
@@ -97,9 +135,7 @@ class FitnessTrainer:
                 self.mp_pose.POSE_CONNECTIONS
             )
 
-        # Display processed image
-        cv2.imshow('Fitness Trainer', image)
-        return True
+        return image
 
     def run(self):
         # Load or create training plan
@@ -265,14 +301,18 @@ class FitnessTrainer:
                 # 更新最后更新时间
                 self.last_update_time = datetime.now()
 
+    def get_session_duration(self):
+        """获取实际训练时长（不包括暂停时间）"""
+        total_duration = (datetime.now() - datetime.fromisoformat(self.session_data['timestamp'])).seconds
+        return total_duration - self.total_pause_duration
+
     def check_session_complete(self):
         """检查训练会话是否完成"""
         if not self.current_plan:
             return False
 
-        # 检查是否达到计划的训练时长
-        session_duration = (
-            datetime.now() - datetime.fromisoformat(self.session_data['timestamp'])).seconds
+        # 使用新的计时方法
+        session_duration = self.get_session_duration()
         if session_duration >= 1800:  # 30分钟训练时长
             return True
 
@@ -307,8 +347,7 @@ class FitnessTrainer:
                     (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
 
         # 显示当前训练时长
-        session_duration = (
-            datetime.now() - datetime.fromisoformat(self.session_data['timestamp'])).seconds
+        session_duration = self.get_session_duration()
         y_pos += 30
         cv2.putText(image, f"Duration: {session_duration // 60}m {session_duration % 60}s",
                     (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
@@ -323,5 +362,8 @@ class FitnessTrainer:
 
 
 if __name__ == '__main__':
+    app = QApplication(sys.argv)
     trainer = FitnessTrainer()
-    trainer.run()
+    window = MainWindow(trainer)
+    window.show()
+    sys.exit(app.exec_())
