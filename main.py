@@ -14,6 +14,7 @@ from data_analyzer import DataAnalyzer
 from text_renderer import TextRenderer
 from pose_model import PosePrediction
 from ui.main_window import MainWindow
+from voice_feedback import VoiceFeedback  # 添加导入
 
 
 class FitnessTrainer:
@@ -30,6 +31,9 @@ class FitnessTrainer:
         p.connect(p.DIRECT)
         p.setGravity(0, 0, -9.81)
         p.setRealTimeSimulation(1)
+
+        # 初始化语音反馈
+        self.voice_feedback = VoiceFeedback()  # 添加这行
 
         # 初始化姿态分析器和人体模型
         self.pose_analyzer = PoseAnalyzer()
@@ -243,14 +247,11 @@ class FitnessTrainer:
             joint_data['count'] += 1
 
     def track_exercise_completion(self, pose_state):
-        """跟踪和检测动作完成情况
-        Args:
-            pose_state: 当前姿势状态
-        """
         if not self.current_plan or not self.current_plan['exercises']:
             return
 
         current_exercise = self.current_plan['exercises'][0]
+        total_reps = current_exercise.get('reps', 10)  # 获取目标重复次数
 
         # 初始化姿势状态历史记录
         if not hasattr(self, 'pose_state_history'):
@@ -259,29 +260,33 @@ class FitnessTrainer:
             self.rep_count = 0
             self.last_update_time = datetime.now()
 
-        # 只有当姿势状态变化时才记录
+        # 只有当姿势状态变化时才记录和播报
         if not self.pose_state_history or pose_state != self.pose_state_history[-1]:
             self.pose_state_history.append(pose_state)
+            
+            # 更新并播报姿势状态
+            self.voice_feedback.update_pose_state(pose_state)
 
             # 检测完整的动作周期
             if len(self.pose_state_history) >= 3:
-                # 深蹲：只要检测到Squat状态就计为完成一次
+                # 深蹲完成反馈
                 if current_exercise['name'] == 'squat' and pose_state == 'Squat':
                     self.rep_count += 1
+                    # 使用改进后的report_exercise_completion方法
+                    self.voice_feedback.report_exercise_completion('squat', self.rep_count, total_reps)
                     # 更新完成的训练次数
                     self.current_plan['progress']['completed_sessions'] += 1
 
                     # 清除已处理的状态历史
                     self.pose_state_history = []
 
-                # 俯卧撑：检测从站立到俯卧再回到站立的过程，允许中间有其他状态
+                # 俯卧撑完成反馈
                 elif current_exercise['name'] == 'push_up':
-                    # 找到最近的一次站立->俯卧->站立的序列
                     for i in range(len(self.pose_state_history)-2):
                         states = self.pose_state_history[i:i+3]
                         if states[0] == 'Standing' and 'Lying' in states[1:-1] and states[-1] == 'Standing':
                             self.rep_count += 1
-                            print(f"完成第{self.rep_count}个俯卧撑")
+                            self.voice_feedback.report_exercise_completion('push_up', self.rep_count)
                             # 清除已处理的状态历史
                             self.pose_state_history = self.pose_state_history[i+2:]
                             break
