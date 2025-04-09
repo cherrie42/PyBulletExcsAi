@@ -136,6 +136,20 @@ class PoseAnalyzer:
         ankle_y = (landmarks[27].y + landmarks[28].y) / 2    # 踝部中点
         vertical_ratio = abs(shoulder_y - hip_y) / abs(hip_y - ankle_y)
 
+        # 新增髋部水平位移计算
+        hip_x = (landmarks[23].x + landmarks[24].x) / 2
+        ankle_x = (landmarks[27].x + landmarks[28].x) / 2
+        hip_ankle_displacement = abs(hip_x - ankle_x)
+
+        # 计算髋部下沉程度
+        hip_drop = shoulder_y - hip_y
+
+            # 计算膝盖弯曲程度
+        left_knee_angle = self.calculate_angle(landmarks[23], landmarks[25], landmarks[27])
+        right_knee_angle = self.calculate_angle(landmarks[24], landmarks[26], landmarks[28])
+        knee_angle = np.degrees(min(left_knee_angle, right_knee_angle))
+
+
         # 判断姿态状态
         hip_angle = np.degrees(min(left_hip_angle, right_hip_angle))
 
@@ -145,7 +159,7 @@ class PoseAnalyzer:
         elif self.pose_thresholds['sitting']['hip_knee_angle'] < hip_angle < self.pose_thresholds['standing']['hip_knee_angle'] and \
                 vertical_ratio > self.pose_thresholds['sitting']['vertical_ratio']:
             return 'Sitting'
-        elif hip_angle < self.pose_thresholds['squat']['hip_knee_angle']:
+        elif (hip_angle < self.pose_thresholds['squat']['hip_knee_angle'] and hip_ankle_displacement > 0.05):
             return 'Squat'
         elif vertical_ratio < self.pose_thresholds['squat']['vertical_ratio']:
             return 'Lying'
