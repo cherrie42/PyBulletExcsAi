@@ -1,5 +1,7 @@
 import pyttsx3
 from datetime import datetime
+import threading
+
 
 class VoiceFeedback:
     def __init__(self):
@@ -18,12 +20,18 @@ class VoiceFeedback:
         """
         current_time = datetime.now()
         if priority or (current_time - self.last_voice_time).seconds >= 3:
-            self.engine.say(message)
-            self.engine.runAndWait()
+            def speak_thread():
+                self.engine.say(message)
+                self.engine.runAndWait()
+            t = threading.Thread(target=speak_thread)
+            t.daemon = True
+            t.start()
             self.last_voice_time = current_time
 
     def update_pose_state(self, pose_state):
         """更新并播报姿势状态"""
+        from datetime import datetime
+        t0 = datetime.now()
         if pose_state != self.last_pose_state:
             feedback_messages = {
                 'Standing': '站立姿势',
@@ -32,9 +40,21 @@ class VoiceFeedback:
                 'Invalid': '请调整姿势',
                 'Preparing': '准备开始'
             }
+            t1 = datetime.now()
+            print(
+                f"[DEBUG] {t1} update_pose_state: before feedback_messages, elapsed: {(t1-t0).total_seconds()}s")
             if pose_state in feedback_messages:
+                t2 = datetime.now()
+                print(
+                    f"[DEBUG] {t2} update_pose_state: before speak, elapsed: {(t2-t0).total_seconds()}s")
                 self.speak(feedback_messages[pose_state])
+                t3 = datetime.now()
+                print(
+                    f"[DEBUG] {t3} update_pose_state: after speak, elapsed: {(t3-t0).total_seconds()}s")
             self.last_pose_state = pose_state
+        t4 = datetime.now()
+        print(
+            f"[DEBUG] {t4} update_pose_state: end, elapsed: {(t4-t0).total_seconds()}s")
 
     def report_exercise_completion(self, exercise_name, rep_count, total_reps=None):
         """报告运动完成情况"""
@@ -48,10 +68,11 @@ class VoiceFeedback:
                 'complete': '俯卧撑训练完成'
             }
         }
-        
+
         if exercise_name in exercise_messages:
             if total_reps and rep_count >= total_reps:
-                self.speak(exercise_messages[exercise_name]['complete'], priority=True)
+                self.speak(
+                    exercise_messages[exercise_name]['complete'], priority=True)
             else:
                 self.speak(exercise_messages[exercise_name]['progress'])
 
@@ -71,7 +92,7 @@ class VoiceFeedback:
                     }
                     joint_name = joint_names.get(joint, joint)
                     feedback.append(f"{joint_name}{result['suggestion']}")
-            
+
             if feedback:
                 self.speak("请注意：" + "，".join(feedback))
             self.last_evaluation = evaluation
