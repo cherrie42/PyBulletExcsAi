@@ -19,41 +19,27 @@ from voice_feedback import VoiceFeedback  # 添加导入
 
 class FitnessTrainer:
     def __init__(self, user_id="default_user"):
-        print(f"[{datetime.now()}] Starting MediaPipe initialization...")
         # 初始化MediaPipe姿势检测
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose()
         self.mp_drawing = mp.solutions.drawing_utils
-        print(f"[{datetime.now()}] MediaPipe initialization done")
 
-        print(f"[{datetime.now()}] Starting camera initialization...")
         # 初始化摄像头
         self.cap = cv2.VideoCapture(0)
-        print(f"[{datetime.now()}] Camera initialization done")
 
-        print(f"[{datetime.now()}] Starting PyBullet initialization...")
         # 初始化PyBullet（使用DIRECT模式替代GUI模式）
         p.connect(p.DIRECT)
         p.setGravity(0, 0, -9.81)
         p.setRealTimeSimulation(1)
-        print(f"[{datetime.now()}] PyBullet initialization done")
 
-        print(f"[{datetime.now()}] Starting voice feedback initialization...")
         # 初始化语音反馈
-        self.voice_feedback = VoiceFeedback()  # 添加这行
-        print(f"[{datetime.now()}] Voice feedback initialization done")
+        self.voice_feedback = VoiceFeedback()
 
-        print(
-            f"[{datetime.now()}] Starting pose analyzer and humanoid model initialization...")
         # 初始化姿态分析器和人体模型
         self.pose_analyzer = PoseAnalyzer()
         self.humanoid = HumanoidModel()
         self.humanoid.load_model()
-        print(
-            f"[{datetime.now()}] Pose analyzer and humanoid model initialization done")
 
-        print(
-            f"[{datetime.now()}] Starting training plan and data analyzer initialization...")
         # 初始化训练计划和数据分析器
         self.user_id = user_id
         self.training_plan = TrainingPlan()
@@ -65,18 +51,12 @@ class FitnessTrainer:
             'exercises': [],
             'joint_accuracy': {}
         }
-        print(
-            f"[{datetime.now()}] Training plan and data analyzer initialization done")
 
-        print(f"[{datetime.now()}] Starting text renderer initialization...")
         # 初始化文本渲染器
-        self.text_renderer = TextRenderer()  # 添加这一行
-        print(f"[{datetime.now()}] Text renderer initialization done")
+        self.text_renderer = TextRenderer()
 
-        print(f"[{datetime.now()}] Starting pose predictor initialization...")
         # 将 PoseClassifier 替换为 PyTorch 模型
         self.pose_predictor = PosePrediction()
-        print(f"[{datetime.now()}] Pose predictor initialization done")
 
     def start(self):
         """开始训练"""
@@ -239,30 +219,15 @@ class FitnessTrainer:
 
     def get_target_angles(self):
         """获取当前训练动作的目标角度"""
-        t0 = datetime.now()
-        print(f"[DEBUG] {t0} get_target_angles: start")
         if not self.current_plan or not self.current_plan['exercises']:
-            t1 = datetime.now()
-            print(
-                f"[DEBUG] {t1} get_target_angles: no plan or exercises, return default, elapsed: {(t1-t0).total_seconds()}s")
             return {
                 'left_shoulder': 0.0,
                 'right_shoulder': 0.0,
                 'left_hip': 0.0,
                 'right_hip': 0.0
             }
-        t2 = datetime.now()
-        print(
-            f"[DEBUG] {t2} get_target_angles: before get current_exercise, elapsed: {(t2-t0).total_seconds()}s")
         current_exercise = self.current_plan['exercises'][0]
-        t3 = datetime.now()
-        print(
-            f"[DEBUG] {t3} get_target_angles: after get current_exercise, elapsed: {(t3-t0).total_seconds()}s")
-        result = current_exercise.get('target_angles', {})
-        t4 = datetime.now()
-        print(
-            f"[DEBUG] {t4} get_target_angles: after get target_angles, elapsed: {(t4-t0).total_seconds()}s")
-        return result
+        return current_exercise.get('target_angles', {})
 
     def update_session_data(self, joint_angles, evaluation):
         """更新训练会话数据"""
@@ -282,42 +247,25 @@ class FitnessTrainer:
             joint_data['count'] += 1
 
     def track_exercise_completion(self, pose_state):
-        t0 = datetime.now()
-        print(f"[DEBUG] {t0} track_exercise_completion: start")
         if not self.current_plan or not self.current_plan['exercises']:
-            t1 = datetime.now()
-            print(
-                f"[DEBUG] {t1} track_exercise_completion: no plan or exercises, return, elapsed: {(t1-t0).total_seconds()}s")
             return
-        t2 = datetime.now()
-        print(
-            f"[DEBUG] {t2} track_exercise_completion: before get current_exercise, elapsed: {(t2-t0).total_seconds()}s")
+
         current_exercise = self.current_plan['exercises'][0]
         total_reps = current_exercise.get('reps', 10)  # 获取目标重复次数
-        t3 = datetime.now()
-        print(
-            f"[DEBUG] {t3} track_exercise_completion: after get current_exercise, elapsed: {(t3-t0).total_seconds()}s")
+
         # 初始化姿势状态历史记录
         if not hasattr(self, 'pose_state_history'):
             self.pose_state_history = []
             self.exercise_completed = False
             self.rep_count = 0
             self.last_update_time = datetime.now()
-            print(
-                f"[DEBUG] {datetime.now()} track_exercise_completion: initialized pose_state_history")
+
         # 只有当姿势状态变化时才记录和播报
         if not self.pose_state_history or pose_state != self.pose_state_history[-1]:
-            t4 = datetime.now()
-            print(
-                f"[DEBUG] {t4} track_exercise_completion: before append pose_state, elapsed: {(t4-t0).total_seconds()}s")
             self.pose_state_history.append(pose_state)
-            print(
-                f"[DEBUG] {datetime.now()} track_exercise_completion: pose_state changed, appended {pose_state}")
             # 更新并播报姿势状态
             self.voice_feedback.update_pose_state(pose_state)
-            t6 = datetime.now()
-            print(
-                f"[DEBUG] {t6} track_exercise_completion: after update_pose_state, elapsed: {(t6-t0).total_seconds()}s")
+
             # 检测完整的动作周期
             if len(self.pose_state_history) >= 3:
                 # 深蹲完成反馈
@@ -327,8 +275,7 @@ class FitnessTrainer:
                         'squat', self.rep_count, total_reps)
                     self.current_plan['progress']['completed_sessions'] += 1
                     self.pose_state_history = []
-                    print(
-                        f"[DEBUG] {datetime.now()} track_exercise_completion: squat completed, rep_count={self.rep_count}")
+
                 # 俯卧撑完成反馈
                 elif current_exercise['name'] == 'push_up':
                     for i in range(len(self.pose_state_history)-2):
@@ -338,25 +285,18 @@ class FitnessTrainer:
                             self.voice_feedback.report_exercise_completion(
                                 'push_up', self.rep_count)
                             self.pose_state_history = self.pose_state_history[i+2:]
-                            print(
-                                f"[DEBUG] {datetime.now()} track_exercise_completion: push_up completed, rep_count={self.rep_count}")
                             break
+
             # 限制历史记录长度
             if len(self.pose_state_history) > 10:
                 self.pose_state_history = self.pose_state_history[-10:]
-                print(
-                    f"[DEBUG] {datetime.now()} track_exercise_completion: trimmed pose_state_history")
+
             # 检查是否完成了当前动作的所有重复次数
             if self.rep_count >= current_exercise.get('reps', 1):
                 self.exercise_completed = True
                 self.rep_count = 0  # 重置计数器，准备下一个动作
                 self.save_session()
                 self.last_update_time = datetime.now()
-                print(
-                    f"[DEBUG] {datetime.now()} track_exercise_completion: exercise_completed, session saved")
-        t7 = datetime.now()
-        print(
-            f"[DEBUG] {t7} track_exercise_completion: end, elapsed: {(t7-t0).total_seconds()}s")
 
     def get_session_duration(self):
         """获取实际训练时长（不包括暂停时间）"""
