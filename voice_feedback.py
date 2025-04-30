@@ -90,7 +90,14 @@ class VoiceFeedback:
             'pause': '训练暂停',
             'resume': '训练继续',
             'complete': '训练完成，做得很好！',
-            'duration': f'已训练{duration//60}分钟{duration%60}秒'
+            # 'duration' 状态单独处理
         }
         if status in status_messages:
             self.speak(status_messages[status], priority=True)
+        elif status == 'duration' and duration is not None:
+            try:
+                duration_message = f'已训练{int(duration)//60}分钟{int(duration)%60}秒'
+                self.speak(duration_message, priority=True)
+            except TypeError:
+                print(f"Error formatting duration: {duration}")  # 添加错误处理
+        # 如果 status 是 'duration' 但 duration 是 None，则不播报

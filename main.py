@@ -43,14 +43,18 @@ class FitnessTrainer:
         # 初始化训练计划和数据分析器
         self.user_id = user_id
         self.training_plan = TrainingPlan()
-        self.data_analyzer = DataAnalyzer()
+        self.data_analyzer = DataAnalyzer()  # DataAnalyzer 实例
         self.current_plan = None
         self.session_data = {
             'user_id': user_id,
             'timestamp': datetime.now().isoformat(),
             'exercises': [],
-            'joint_accuracy': {}
+            'joint_accuracy': {},
+            'rep_counts': {},
+            'pose_states': []
         }
+        self.rep_count = 0  # 初始化动作计数
+        self.pose_state_history = []  # 初始化姿势状态历史
 
         # 初始化文本渲染器
         self.text_renderer = TextRenderer()
@@ -58,107 +62,103 @@ class FitnessTrainer:
         # 将 PoseClassifier 替换为 PyTorch 模型
         self.pose_predictor = PosePrediction()
 
-    def start(self):
+        # 初始化运行和暂停状态
+        self.is_running = False
+        self.is_paused = False
+
+    def start_session(self):
         """开始训练"""
-        # 加载或创建训练计划
-        self.load_or_create_plan()
+        # 加载或创建训练计划，并传入分析数据
+        analysis_data = self.data_analyzer.analyze_progress(self.user_id)
+        self.current_plan = self.training_plan.create_plan(
+            {'user_id': self.user_id, 'level': 'beginner', 'goal': 'strength'}, analysis_data)
         # 初始化训练状态
         self.is_running = True
         self.is_paused = False
         self.pause_start_time = None
         self.total_pause_duration = 0
+        self.rep_count = 0  # 重置计数器
+        self.pose_state_history = []  # 重置历史
+        self.voice_feedback.announce_session_status('start')
+        # 移除原有的 while 循环，帧处理由 UI 的 update_frame 调用 process_frame 驱动
 
-    def pause(self):
-        """暂停训练"""
-        self.is_paused = not self.is_paused
-        if self.is_paused:
-            self.pause_start_time = datetime.now()
-        else:
-            # 计算暂停时长并累加
-            if self.pause_start_time:
-                pause_duration = (
-                    datetime.now() - self.pause_start_time).seconds
-                self.total_pause_duration += pause_duration
-                self.pause_start_time = None
+    def process_frame(self):
+        """处理单帧图像，进行姿势检测和分析"""
+        if not self.is_running or self.is_paused:
+            # 如果训练未运行或已暂停，尝试读取帧以保持摄像头活动，但不处理
+            ret, frame = self.cap.read()
+            if not ret:
+                return None, None, None  # 无法读取帧
+            # 可以选择返回原始帧或一个表示暂停/未运行状态的帧
+            # 这里返回原始帧，但没有评估和姿势状态
+            return frame, None, "Paused/Stopped"
 
-    def stop(self):
-        """停止训练"""
-        self.is_running = False
-        self.save_session()
-        self.cleanup()
+        ret, frame = self.cap.read()
+        if not ret:
+            print("无法从摄像头读取帧")
+            self.is_running = False  # 停止运行
+            return None, None, None
 
-    def process_frame(self, frame=None):
-        """处理视频帧
-        Args:
-            frame: 可选的输入帧，如果为None则从摄像头读取
-        Returns:
-            处理后的图像帧
-        """
-        if frame is None:
-            success, frame = self.cap.read()
-            if not success:
-                return None
-
-        # Convert color space and perform pose detection
+        # 转换颜色空间 BGR -> RGB
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        image.flags.writeable = False
+
+        # 进行姿势检测
         results = self.pose.process(image)
 
-        # Convert back to BGR for display
+        # 转换颜色空间 RGB -> BGR
+        image.flags.writeable = True
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
+        evaluation = None
+        pose_state = "Detecting..."
+
         if results.pose_landmarks:
-            # Analyze pose and get joint angles
+            # 绘制姿势关键点
+            self.mp_drawing.draw_landmarks(
+                image, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+
+            # 获取关键点坐标
+            landmarks = results.pose_landmarks.landmark
+
+            # 进行姿态分析
             joint_angles = self.pose_analyzer.analyze_pose(
-                results.pose_landmarks)
-
-            # Update PyBullet model pose
-            self.humanoid.set_joint_angles(joint_angles)
-
-            # Get target pose from current training plan
+                results.pose_landmarks)  # 使用 analyze_pose 并传入 pose_landmarks
             target_angles = self.get_target_angles()
             evaluation = self.pose_analyzer.evaluate_pose(
                 joint_angles, target_angles)
 
-            # Detect current pose state
-            pose_state = self.pose_analyzer.detect_pose_state(
-                results.pose_landmarks)
+            # 使用 PyTorch 模型预测姿势状态
+            pose_state = self.pose_predictor.predict(landmarks)
 
-            # 更新姿势状态历史并检测动作完成情况
-            self.track_exercise_completion(pose_state)
+            # 更新人体模型姿态
+            self.humanoid.update_pose(joint_angles)
 
-            # Update training session data
-            self.update_session_data(joint_angles, evaluation)
+            # 跟踪运动完成情况
+            self.track_exercise_completion(pose_state, landmarks)
 
-            # Display pose evaluation results and training progress
+            # 更新会话数据
+            self.update_session_data(joint_angles, evaluation, pose_state)
+
+            # 在图像上绘制评估结果
             self.draw_evaluation(image, evaluation, pose_state)
-            self.draw_training_progress(image)
 
-            # Draw pose landmarks
-            self.mp_drawing.draw_landmarks(
-                image,
-                results.pose_landmarks,
-                self.mp_pose.POSE_CONNECTIONS
-            )
-
-        return image
-
-    def run(self):
-        # Load or create training plan
-        self.load_or_create_plan()
-
-        while self.cap.isOpened():
-            if not self.process_frame():
-                break
-
-            if cv2.waitKey(5) & 0xFF == 27:  # Press ESC to exit
-                break
-
-            # Check if training plan is complete
+            # 检查训练计划是否完成 (可以在这里检查，或者由UI触发)
             if self.check_session_complete():
                 self.save_session()
-                break
+                self.is_running = False  # 标记为停止
+                # 可以通知 UI 训练已完成
+                print("训练计划完成!")
+                # 注意：这里直接停止可能不理想，最好由UI控制停止流程
 
-        self.cleanup()
+        else:
+            # 如果未检测到姿势，显示提示信息
+            cv2.putText(image, "No pose detected", (10, 90),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            pose_state = "No pose detected"
+            evaluation = {}  # 返回空评估
+
+        return image, evaluation, pose_state
 
     def get_exercise_type(self):
         """Get the exercise type from current training plan"""
@@ -182,29 +182,41 @@ class FitnessTrainer:
                     (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
         # Display pose evaluation results
-        y_pos = 90
-        joint_names = {
-            'left_shoulder': 'Left Shoulder',
-            'right_shoulder': 'Right Shoulder',
-            'left_hip': 'Left Hip',
-            'right_hip': 'Right Hip'
-        }
-        for joint_name, result in evaluation.items():
-            status_color = (
-                0, 255, 0) if result['status'] == 'good' else (0, 0, 255)
-            display_name = joint_names.get(joint_name, joint_name)
-            cv2.putText(image, f'{display_name}: {result["suggestion"]}',
-                        (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, status_color, 2)
-            y_pos += 30
+        if evaluation:  # 确保 evaluation 不是 None
+            y_pos = 90
+            joint_names = {
+                'left_shoulder': 'Left Shoulder',
+                'right_shoulder': 'Right Shoulder',
+                'left_hip': 'Left Hip',
+                'right_hip': 'Right Hip',
+                'left_knee': 'Left Knee',  # 添加更多关节
+                'right_knee': 'Right Knee',
+                'left_elbow': 'Left Elbow',
+                'right_elbow': 'Right Elbow'
+            }
+            for joint_name, result in evaluation.items():
+                status_color = (
+                    0, 255, 0) if result['status'] == 'good' else (0, 0, 255)
+                display_name = joint_names.get(joint_name, joint_name)
+                cv2.putText(image, f'{display_name}: {result["suggestion"]}',
+                            (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, status_color, 2)
+                y_pos += 30
 
     def cleanup(self):
-        # Save final training data
+        # Save final training data if the session was running
+        # 检查 self.is_running 状态可能不再准确，因为停止可能由UI触发
+        # 考虑在 stop_training 或窗口关闭时保存
+        # if self.is_running: # 移除此检查，总是在清理时尝试保存
         self.save_session()
 
         # Release resources
-        self.cap.release()
-        cv2.destroyAllWindows()
-        p.disconnect()
+        if self.cap.isOpened():
+            self.cap.release()
+        cv2.destroyAllWindows()  # 这一行可能需要移除，因为窗口由 PyQt 管理
+        # Check if PyBullet is connected before disconnecting
+        if p.isConnected():
+            p.disconnect()
+        print("资源已清理")
 
     def load_or_create_plan(self):
         """加载或创建新的训练计划"""
@@ -220,148 +232,172 @@ class FitnessTrainer:
     def get_target_angles(self):
         """获取当前训练动作的目标角度"""
         if not self.current_plan or not self.current_plan['exercises']:
+            # 返回默认值或引发错误
+            print("Warning: No current plan or exercises found for target angles.")
             return {
-                'left_shoulder': 0.0,
-                'right_shoulder': 0.0,
-                'left_hip': 0.0,
-                'right_hip': 0.0
+                'left_shoulder': 90.0, 'right_shoulder': 90.0,
+                'left_hip': 180.0, 'right_hip': 180.0,
+                'left_knee': 180.0, 'right_knee': 180.0,
+                'left_elbow': 180.0, 'right_elbow': 180.0
             }
         current_exercise = self.current_plan['exercises'][0]
+        # 提供默认空字典，以防 'target_angles' 不存在
         return current_exercise.get('target_angles', {})
 
-    def update_session_data(self, joint_angles, evaluation):
+    def update_session_data(self, joint_angles, evaluation, pose_state):
         """更新训练会话数据"""
-        # 更新关节准确度数据
-        for joint_name, result in evaluation.items():
-            if joint_name not in self.session_data['joint_accuracy']:
-                self.session_data['joint_accuracy'][joint_name] = {
-                    'accuracy': 0,
-                    'count': 0
-                }
+        if not evaluation:  # 如果没有评估数据，则不更新
+            return
 
-            joint_data = self.session_data['joint_accuracy'][joint_name]
-            accuracy = 100 if result['status'] == 'good' else max(
-                0, 100 - abs(result['difference']))
-            joint_data['accuracy'] = (
-                joint_data['accuracy'] * joint_data['count'] + accuracy) / (joint_data['count'] + 1)
-            joint_data['count'] += 1
+        timestamp = datetime.now().isoformat()
+        current_exercise = self.current_plan['exercises'][0][
+            'name'] if self.current_plan and self.current_plan['exercises'] else 'None'
 
-    def track_exercise_completion(self, pose_state):
+        # 记录每个关节的准确度
+        for joint, result in evaluation.items():
+            if joint not in self.session_data['joint_accuracy']:
+                self.session_data['joint_accuracy'][joint] = {
+                    'timestamps': [], 'accuracies': []}
+            self.session_data['joint_accuracy'][joint]['timestamps'].append(
+                timestamp)
+            # 假设准确度是 100 (good) 或 0 (bad)
+            accuracy = 100 if result['status'] == 'good' else 0
+            self.session_data['joint_accuracy'][joint]['accuracies'].append(
+                accuracy)
+
+        # 记录姿势状态
+        self.session_data['pose_states'].append(
+            {'timestamp': timestamp, 'state': pose_state})
+
+        # 记录当前动作和次数 (如果适用)
+        if current_exercise != 'None':
+            if current_exercise not in self.session_data['rep_counts']:
+                self.session_data['rep_counts'][current_exercise] = 0
+            # 更新当前次数
+            self.session_data['rep_counts'][current_exercise] = self.rep_count
+
+    def track_exercise_completion(self, current_pose_state, landmarks):
+        """跟踪运动完成情况，使用 landmarks 进行更精确判断"""
         if not self.current_plan or not self.current_plan['exercises']:
             return
 
         current_exercise = self.current_plan['exercises'][0]
-        total_reps = current_exercise.get('reps', 10)  # 获取目标重复次数
+        ex_name = current_exercise['name']
+        target_reps = current_exercise.get('reps')
 
-        # 初始化姿势状态历史记录
-        if not hasattr(self, 'pose_state_history'):
-            self.pose_state_history = []
-            self.exercise_completed = False
-            self.rep_count = 0
-            self.last_update_time = datetime.now()
+        # 状态转换检测逻辑 (简化示例)
+        last_state = self.pose_state_history[-1] if self.pose_state_history else None
 
-        # 只有当姿势状态变化时才记录和播报
-        if not self.pose_state_history or pose_state != self.pose_state_history[-1]:
-            self.pose_state_history.append(pose_state)
-            # 更新并播报姿势状态
-            self.voice_feedback.update_pose_state(pose_state)
+        # 简单的状态转换计数逻辑 (需要根据具体动作调整)
+        # 例如：深蹲，从 'up' -> 'down' -> 'up' 算一次
+        rep_completed = False
+        if ex_name == 'squat':
+            if last_state == 'down' and current_pose_state == 'up':
+                rep_completed = True
+        elif ex_name == 'push_up':
+            if last_state == 'down' and current_pose_state == 'up':  # 假设俯卧撑也是 down -> up
+                rep_completed = True
+        # 可以为其他动作添加类似逻辑
 
-            # 检测完整的动作周期
-            if len(self.pose_state_history) >= 3:
-                # 深蹲完成反馈
-                if current_exercise['name'] == 'squat' and pose_state == 'Squat':
-                    self.rep_count += 1
-                    self.voice_feedback.report_exercise_completion(
-                        'squat', self.rep_count, total_reps)
-                    self.current_plan['progress']['completed_sessions'] += 1
-                    self.pose_state_history = []
+        # 更新历史记录
+        self.pose_state_history.append(current_pose_state)
+        if len(self.pose_state_history) > 5:  # 保留最近5个状态用于检测
+            self.pose_state_history.pop(0)
 
-                # 俯卧撑完成反馈
-                elif current_exercise['name'] == 'push_up':
-                    for i in range(len(self.pose_state_history)-2):
-                        states = self.pose_state_history[i:i+3]
-                        if states[0] == 'Standing' and 'Lying' in states[1:-1] and states[-1] == 'Standing':
-                            self.rep_count += 1
-                            self.voice_feedback.report_exercise_completion(
-                                'push_up', self.rep_count)
-                            self.pose_state_history = self.pose_state_history[i+2:]
-                            break
+        if rep_completed:
+            self.rep_count += 1
+            print(f"{ex_name} 完成次数: {self.rep_count}")
+            self.voice_feedback.announce_rep_count(self.rep_count)
 
-            # 限制历史记录长度
-            if len(self.pose_state_history) > 10:
-                self.pose_state_history = self.pose_state_history[-10:]
-
-            # 检查是否完成了当前动作的所有重复次数
-            if self.rep_count >= current_exercise.get('reps', 1):
-                self.exercise_completed = True
-                self.rep_count = 0  # 重置计数器，准备下一个动作
-                self.save_session()
-                self.last_update_time = datetime.now()
-
-    def get_session_duration(self):
-        """获取实际训练时长（不包括暂停时间）"""
-        total_duration = (
-            datetime.now() - datetime.fromisoformat(self.session_data['timestamp'])).seconds
-        return total_duration - self.total_pause_duration
+            # 检查是否达到目标次数
+            if target_reps and self.rep_count >= target_reps:
+                print(f"动作 {ex_name} 完成!")
+                self.voice_feedback.announce_exercise_completion(ex_name)
+                self.session_data['exercises'].append({
+                    'name': ex_name,
+                    'reps_completed': self.rep_count,
+                    'target_reps': target_reps,
+                    'completion_time': datetime.now().isoformat()
+                })
+                # 切换到下一个动作
+                self.current_plan['exercises'].pop(0)
+                self.rep_count = 0  # 重置计数器
+                self.pose_state_history = []  # 重置历史
+                if not self.current_plan['exercises']:
+                    print("所有动作完成!")
+                    # 可以在这里触发训练完成的逻辑
+                else:
+                    next_exercise = self.current_plan['exercises'][0]['name']
+                    print(f"下一个动作: {next_exercise}")
+                    self.voice_feedback.announce_next_exercise(next_exercise)
 
     def check_session_complete(self):
-        """检查训练会话是否完成"""
-        if not self.current_plan:
-            return False
-
-        # 使用新的计时方法
-        session_duration = self.get_session_duration()
-        if session_duration >= 1800:  # 30分钟训练时长
-            return True
-
-        # 检查是否已完成当前动作
-        if hasattr(self, 'exercise_completed') and self.exercise_completed:
-            # 如果已经完成了所有动作，返回True
-            if not self.current_plan['exercises']:
-                return True
-
-            # 如果距离上次更新已经过了一定时间，返回True以触发保存
-            if hasattr(self, 'last_update_time') and \
-               (datetime.now() - self.last_update_time).seconds > 5:
-                return True
-
-        return False
+        """检查整个训练计划是否完成"""
+        return self.current_plan and not self.current_plan['exercises']
 
     def save_session(self):
-        """保存训练会话数据"""
-        if self.session_data['joint_accuracy']:
-            self.data_analyzer.save_session_data(
-                self.user_id, self.session_data)
-            self.training_plan.update_progress(self.user_id, self.session_data)
-
-    def draw_training_progress(self, image):
-        """在图像上显示训练进度信息"""
-        if not self.current_plan:
+        """保存当前训练会话数据"""
+        if not self.session_data or not self.session_data.get('exercises'):
+            # 如果没有有效的训练数据（例如，没有完成任何动作），则不保存
+            print("没有有效的训练数据可保存。")
             return
 
-        # 显示训练计划信息
-        y_pos = 400
-        cv2.putText(image, f"Training Plan: Session {self.current_plan['progress']['completed_sessions'] + 1}",
-                    (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+        # 确保保存目录存在
+        save_dir = Path('data') / self.user_id
+        save_dir.mkdir(parents=True, exist_ok=True)
 
-        # 显示当前训练时长
-        session_duration = self.get_session_duration()
-        y_pos += 30
-        cv2.putText(image, f"Duration: {session_duration // 60}m {session_duration % 60}s",
-                    (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+        # 生成文件名
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = save_dir / f"session_{timestamp_str}.json"
 
-        # 显示训练完成度
-        if self.current_plan['exercises']:
-            total_exercises = len(self.current_plan['exercises'])
-            completed = self.current_plan['progress']['completed_sessions']
-            y_pos += 30
-            cv2.putText(image, f"Progress: {completed}/{total_exercises} sets",
-                        (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+        # 保存数据
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                import json
+                json.dump(self.session_data, f, ensure_ascii=False, indent=4)
+            print(f"训练数据已保存到 {filename}")
+        except Exception as e:
+            print(f"保存训练数据时出错: {e}")
+
+    def pause_resume(self):
+        """暂停或恢复训练"""
+        if not self.is_running:
+            return  # 训练未开始，无法暂停/恢复
+
+        if self.is_paused:
+            # 恢复训练
+            self.is_paused = False
+            pause_duration = time.time() - self.pause_start_time
+            self.total_pause_duration += pause_duration
+            print(f"训练已恢复，暂停时长: {pause_duration:.2f} 秒")
+            self.voice_feedback.announce_session_status('resume')
+        else:
+            # 暂停训练
+            self.is_paused = True
+            self.pause_start_time = time.time()
+            print("训练已暂停")
+            self.voice_feedback.announce_session_status('pause')
+
+    def stop(self):
+        """停止训练"""
+        if self.is_running:
+            self.is_running = False
+            print("训练已停止")
+            self.voice_feedback.announce_session_status('stop')
+            self.cleanup()  # 停止时进行清理和保存
+        else:
+            print("训练尚未开始或已停止")
 
 
+# 主程序入口
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    trainer = FitnessTrainer()
-    window = MainWindow(trainer)
-    window.show()
+
+    # 创建 FitnessTrainer 实例
+    trainer = FitnessTrainer(user_id="test_user_123")
+
+    # 创建主窗口并传入 trainer
+    main_win = MainWindow(trainer)
+    main_win.show()
+
     sys.exit(app.exec_())
