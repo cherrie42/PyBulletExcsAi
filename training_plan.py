@@ -22,8 +22,32 @@ class TrainingPlan:
             'start_date': datetime.now().strftime('%Y-%m-%d'),
             'duration_weeks': 4,
             'exercises': self._generate_exercises(user_info, analysis_data),
-            'progress': {'completed_sessions': 0, 'total_sessions': 0}
+            'progress': {'completed_sessions': 0, 'total_sessions': 0},
+            'adaptive_settings': {
+                'intensity_adjustment': 0.0,
+                'frequency_adjustment': 1.0,
+                'difficulty_level': user_info.get('level', 'beginner')
+            }
         }
+
+        # 根据分析数据动态调整计划
+        if analysis_data:
+            # 根据疲劳分析调整训练强度
+            if 'fatigue_analysis' in analysis_data:
+                fatigue_score = analysis_data['fatigue_analysis'].get(
+                    'score', 0)
+                plan['adaptive_settings']['intensity_adjustment'] = max(
+                    -0.3, min(0.3, -fatigue_score * 0.1))
+
+            # 根据一致性分数调整训练频率
+            if 'consistency_score' in analysis_data:
+                consistency = analysis_data['consistency_score'] / 100.0
+                plan['adaptive_settings']['frequency_adjustment'] = min(
+                    1.5, max(0.7, consistency))
+
+            # 根据体能水平调整难度
+            if 'fitness_level' in analysis_data:
+                plan['adaptive_settings']['difficulty_level'] = analysis_data['fitness_level']
 
         # 保存训练计划
         self._save_plan(plan)
